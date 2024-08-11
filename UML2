@@ -1,0 +1,52 @@
+@startuml
+' Define Components
+package "GitOps with\nAnsible Automation Platform\n(Internal Roles and Playbooks)" {
+    component "[Internal GitLab Project]\nNon-Protected Feature Branch" as FeatureBranch
+    component "[Internal GitLab Project]\nProtected Main Branch (Allow No Direct Push Commits)" as MainBranch
+    component "Ansible Lint Against Code in Feature Branch" as Lint
+    component "Merge Request" as MR
+    component "Deploy Stage in\nGitLab CI" as GitLabCI
+}
+
+package "Ansible Automation Platform (AAP)" {
+    component "AWX API" as AWXCLI
+    component "Workflow Template" as WorkflowTemplate {
+        component "Inventory Sync Job" as InventorySync
+        component "Project Sync Job" as ProjectSync
+        component "JobTemplateDEV Job" as JobTemplateDEV
+        component "JobTemplateTEST Job" as JobTemplateTEST
+        component "Approval Job" as ApprovalNode
+        component "JobTemplatePROD Job" as JobTemplatePROD
+    }
+    component "[GitLab Repository]\nInventory File" as InventoryFile
+}
+
+package "GitOps with\nAnsible Automation Platform\n(MindPoint or Official\nRedHat Role)" {
+    component "Merge Request\nEvent From Feature to Main Branch" as ThirdPartyRole
+    component "Trigger Webhook" as Webhook
+}
+
+' Define Relationships
+FeatureBranch -right-> Lint : Commit Triggers Pipeline Lint Stage
+FeatureBranch --> MR : Create MR From Checked-Out Branch to Main Branch (with Approval)
+
+MR --> MainBranch : Merge into Main
+MainBranch -right-> GitLabCI : Trigger CI Pipeline
+
+GitLabCI -right-> AWXCLI
+AWXCLI -down-> WorkflowTemplate : Launch Related Workflow Template
+
+WorkflowTemplate -right-> InventorySync
+InventorySync -right-> InventoryFile : Pull Inventory Data
+
+InventoryFile --> InventorySync
+InventorySync -down-> ProjectSync
+
+ProjectSync -down-> JobTemplateDEV
+JobTemplateDEV -right-> JobTemplateTEST
+JobTemplateTEST -right-> ApprovalNode 
+ApprovalNode -right-> JobTemplatePROD
+
+ThirdPartyRole -right-> Webhook
+Webhook -down-> AWXCLI
+@enduml
