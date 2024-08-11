@@ -1,0 +1,53 @@
+@startuml
+!theme vibrant
+' Define Components
+package "GitOps with\nAnsible Automation Platform" {
+    component "[Internal GitLab Project]\nNon-Protected Feature Branch" as FeatureBranch
+    component "[Internal GitLab Project]\nProtected Main Branch" as MainBranch
+    component "Ansible Lint" as Lint
+    component "Merge Request" as MR
+    component "Deploy Stage in\nGitLab CI" as GitLabCI
+}
+
+package "Ansible Automation Platform (AAP)" {
+    component "AWX CLI" as AWXCLI
+    component "Workflow Template" as WorkflowTemplate {
+        component "Inventory Sync" as InventorySync
+        component "Project Sync" as ProjectSync
+        component "JobTemplateDEV" as JobTemplateDEV
+        component "JobTemplateTEST" as JobTemplateTEST
+        component "Approval Node" as ApprovalNode
+        component "JobTemplatePROD" as JobTemplatePROD
+    }
+    component "[GitLab Repository]\nInventory File" as InventoryFile
+}
+
+package "GitLab Project\n(MindPoint or Official\nRedHat Role)" {
+    component "Merge Request\nEvent For Main" as ThirdPartyRole
+    component "Webhook" as Webhook
+}
+
+' Define Relationships
+FeatureBranch -down-> Lint : Commit Triggers Pipeline Lint Stage
+FeatureBranch --> MR : Create MR to Main Branch (with Approval)
+
+MR --> MainBranch : Merge into Main
+MainBranch -down-> GitLabCI : Trigger CI Pipeline
+
+GitLabCI -down-> AWXCLI
+AWXCLI -down-> WorkflowTemplate : Launch Related Workflow Template
+
+WorkflowTemplate -down-> InventorySync
+InventorySync --> InventoryFile : Pull Inventory Data
+
+InventoryFile --> InventorySync : Contains Environment-specific Groups
+InventorySync --> ProjectSync
+
+ProjectSync --> JobTemplateDEV
+JobTemplateDEV --> JobTemplateTEST
+JobTemplateTEST --> ApprovalNode 
+ApprovalNode --> JobTemplatePROD
+
+ThirdPartyRole -down-> Webhook
+Webhook --> AWXCLI
+@enduml
