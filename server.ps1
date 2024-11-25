@@ -1,12 +1,12 @@
 Import-Module ActiveDirectory
 
-$outputFile = "C:\RootDomainMachineInfo.csv" 
-$smtpServer = "smtp.gmail.com"              
-$smtpPort = 587                             
-$smtpUser = "@gmail.com"        
-$smtpPass = "///////"           
-$fromEmail = "@gmail.com"       
-$toEmail = "@gmail.com"         
+$outputFile = "" 
+$smtpServer = ""              
+$smtpPort =                              
+$smtpUser = "@"        
+$smtpPass = ""           
+$fromEmail = "@"       
+$toEmail = ""         
 $emailSubject = "Daily Active Directory Report" 
 $emailBody = "Please find attached the exported Active Directory data." 
 
