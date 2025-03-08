@@ -1,0 +1,82 @@
+DAX For Burndown:
+
+Table:
+Incremental = 
+VAR AllDates = 
+    DISTINCT(
+        UNION(
+            SELECTCOLUMNS(Sheet1, "Date", Sheet1[Scheduled On]),
+            SELECTCOLUMNS(Sheet1, "Date", Sheet1[Completed On])
+        )
+    )
+RETURN 
+    ADDCOLUMNS(
+        AllDates,
+        "Projected Completed", 
+        VAR CurrentDate = [Date]  
+        RETURN 
+            CALCULATE(
+                COUNTROWS(Sheet1),
+                Sheet1[Scheduled On] <= CurrentDate,
+                KEEPFILTERS(ALLSELECTED(Sheet1[Network]))
+            ),
+
+        "Actual Completed",
+        VAR CurrentDate = [Date]  
+        RETURN 
+            CALCULATE(
+                COUNTROWS(Sheet1),
+                Sheet1[Completed On] <= CurrentDate,
+                USERELATIONSHIP(Sheet1[Completed On], Dates[Date]),
+                KEEPFILTERS(ALLSELECTED(Sheet1[Network]))
+            )
+    )
+
+
+Table:
+Dates = 
+ADDCOLUMNS (
+    CALENDAR ( MIN ( Sheet1[Scheduled On] ), MAX ( Sheet1[Completed On] ) ),
+    "Year", YEAR ( [Date] ),
+    "Month Number", MONTH ( [Date] ),
+    "Month Name", FORMAT ( [Date], "MMMM" ),
+    "Quarter", "Q" & QUARTER ( [Date] ),
+    "Day", DAY ( [Date] ),
+    "Weekday", FORMAT ( [Date], "dddd" )
+)
+
+Table:
+BurnoutChart = 
+VAR AllDates = 
+    DISTINCT(
+        UNION(
+            SELECTCOLUMNS(Sheet1, "Date", Sheet1[Scheduled On]),
+            SELECTCOLUMNS(Sheet1, "Date", Sheet1[Completed On])
+        )
+    )
+VAR TotalServers = DISTINCTCOUNT(Sheet1[Index]) -- Get total count of servers
+
+RETURN 
+    ADDCOLUMNS(
+        AllDates,
+        "Projected Remaining", 
+        VAR CurrentDate = [Date]  
+        RETURN 
+            TotalServers - 
+            CALCULATE(
+                COUNTROWS(Sheet1),
+                Sheet1[Scheduled On] <= CurrentDate, -- Count servers scheduled by this date
+                KEEPFILTERS(ALLSELECTED(Sheet1[Network])) -- Apply network filter
+            ),
+
+        "Actual Remaining",
+        VAR CurrentDate = [Date]  
+        RETURN 
+            TotalServers - 
+            CALCULATE(
+                COUNTROWS(Sheet1),
+                Sheet1[Completed On] <= CurrentDate, -- Count servers actually completed by this date
+                USERELATIONSHIP(Sheet1[Completed On], Dates[Date]), -- Ensure correct date mapping
+                KEEPFILTERS(ALLSELECTED(Sheet1[Network])) -- Apply network filter
+            )
+    )
