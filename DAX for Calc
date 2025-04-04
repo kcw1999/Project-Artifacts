@@ -1,0 +1,1 @@
+=INT(((DATEVALUE(LEFT([FirstDateAssigned], FIND(" ", [FirstDateAssigned]) - 1) + TIMEVALUE(MID([FirstDateAssigned], FIND(" ", [FirstDateAssigned]) + 1, LEN([FirstDateAssigned])))) - (DATEVALUE(LEFT([FirstSeen], FIND(" ", [FirstSeen]) - 1) + TIMEVALUE(MID([FirstSeen], FIND(" ", [FirstSeen]) + 1, LEN([FirstSeen]))))) * 24)
