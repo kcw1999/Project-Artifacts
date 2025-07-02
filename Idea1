@@ -1,0 +1,103 @@
+graph TB
+    subgraph "VCF Management Domain"
+        GitLab[GitLab Server<br/>CI/CD Orchestration]
+        AAP[Ansible Automation Platform<br/>Remediation Engine]
+        STIG[VMware STIG Tools Appliance<br/>Scanning & Analysis]
+        
+        subgraph "GitLab Repository"
+            Repo[compliance-automation]
+            Profiles[STIG Profiles<br/>InSpec Code]
+            Playbooks[Ansible Playbooks<br/>Remediation Scripts]
+            Pipeline[.gitlab-ci.yml<br/>CI/CD Pipeline]
+            Inventory[Environment Inventories<br/>Target Systems]
+        end
+    end
+
+    subgraph "Dev/Test VI Workload Domain"
+        DevVCenter[vCenter Dev/Test]
+        DevESXi[ESXi Hosts]
+        DevTKG[TKG Clusters]
+        DevVMs[Application VMs]
+        DevDB[Database VMs]
+    end
+
+    subgraph "Production VI Workload Domain"
+        ProdVCenter[vCenter Production]
+        ProdESXi[ESXi Hosts]
+        ProdTKG[TKG Clusters]
+        ProdVMs[Application VMs]
+        ProdDB[Database VMs]
+    end
+
+    subgraph "External Compliance Systems"
+        Heimdall[Heimdall Server<br/>Security Results]
+        eMASS[eMASS System<br/>Compliance Reporting]
+    end
+
+    subgraph "Workflow Stages"
+        Stage1[1. Code Commit<br/>STIG Updates]
+        Stage2[2. Pipeline Trigger<br/>Validation]
+        Stage3[3. Remediation<br/>AAP Job Launch]
+        Stage4[4. Security Scanning<br/>InSpec Execution]
+        Stage5[5. Results Processing<br/>Format Conversion]
+        Stage6[6. Compliance Upload<br/>Heimdall/eMASS]
+    end
+
+    %% GitOps Flow
+    Stage1 --> GitLab
+    GitLab --> Stage2
+    Stage2 --> AAP
+    AAP --> Stage3
+    Stage3 --> STIG
+    STIG --> Stage4
+    Stage4 --> Stage5
+    Stage5 --> Stage6
+    Stage6 --> Heimdall
+    Stage6 --> eMASS
+
+    %% Repository connections
+    GitLab --> Repo
+    Repo --> Profiles
+    Repo --> Playbooks
+    Repo --> Pipeline
+    Repo --> Inventory
+
+    %% AAP Job Template execution
+    AAP -.->|SSH/API| DevVCenter
+    AAP -.->|SSH/API| DevESXi
+    AAP -.->|SSH/API| DevVMs
+    AAP -.->|SSH/API| DevDB
+    AAP -.->|SSH/API| ProdVCenter
+    AAP -.->|SSH/API| ProdESXi
+    AAP -.->|SSH/API| ProdVMs
+    AAP -.->|SSH/API| ProdDB
+
+    %% STIG Tools Appliance scanning
+    STIG -.->|InSpec Remote| DevVCenter
+    STIG -.->|InSpec Remote| DevESXi
+    STIG -.->|InSpec Remote| DevTKG
+    STIG -.->|InSpec Remote| DevVMs
+    STIG -.->|InSpec Remote| DevDB
+    STIG -.->|InSpec Remote| ProdVCenter
+    STIG -.->|InSpec Remote| ProdESXi
+    STIG -.->|InSpec Remote| ProdTKG
+    STIG -.->|InSpec Remote| ProdVMs
+    STIG -.->|InSpec Remote| ProdDB
+
+    %% API Integrations
+    GitLab <-.->|REST API| AAP
+    STIG -.->|heimdall_tools| Heimdall
+    STIG -.->|REST API| eMASS
+
+    %% Styling
+    classDef mgmt fill:#e1f5fe
+    classDef dev fill:#f3e5f5
+    classDef prod fill:#ffebee
+    classDef external fill:#e8f5e8
+    classDef workflow fill:#fff3e0
+
+    class GitLab,AAP,STIG,Repo,Profiles,Playbooks,Pipeline,Inventory mgmt
+    class DevVCenter,DevESXi,DevTKG,DevVMs,DevDB dev
+    class ProdVCenter,ProdESXi,ProdTKG,ProdVMs,ProdDB prod
+    class Heimdall,eMASS external
+    class Stage1,Stage2,Stage3,Stage4,Stage5,Stage6 workflow
