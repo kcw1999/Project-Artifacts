@@ -1,0 +1,13 @@
+vm-golden-image-pipeline/
+├── .gitlab-ci.yml
+├── README.md
+├── config/
+│   ├── vm_specs.yml
+│   ├── attestation.json
+│   └── threshold.yml
+├── playbooks/
+│   ├── deploy_vm.yml
+│   ├── cleanup_vm.yml
+│   └── promote_template.yml
+└── inventories/
+    └── hosts.ini

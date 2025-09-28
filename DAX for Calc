@@ -1,1 +1,0 @@
-=IF(ISBLANK([FirstSeen]) || ISBLANK([FirstDateAssigned]), "", INT((DATEVALUE(LEFT([FirstDateAssigned],10)) + TIMEVALUE(MID([FirstDateAssigned],11,8))) - (DATEVALUE(LEFT([FirstSeen],10)) + TIMEVALUE(MID([FirstSeen],11,8))) * 24))

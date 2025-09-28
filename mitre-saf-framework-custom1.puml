@@ -1,0 +1,104 @@
+@startuml Golden Image Pipeline - Final Sequence Diagram
+!theme mars
+title VM Golden Image Pipeline - Final Sequence Diagram
+
+actor Developer
+participant "GitLab CI/CD" as GitLab
+participant "GitLab Runner" as Runner
+participant "vCenter" as vCenter
+participant "STIG Appliance" as STIG
+participant "Target VM" as VM
+participant "Heimdall" as Heimdall
+database "Content Library" as Library
+
+Developer -> GitLab: Push code with VM_TYPE
+activate GitLab
+
+GitLab -> Runner: Trigger pipeline
+activate Runner
+
+== Deploy Stage ==
+Runner -> vCenter: Deploy VM from template
+activate vCenter
+vCenter -> VM: Create VM instance
+activate VM
+vCenter --> Runner: Return VM IP
+deactivate vCenter
+Runner -> Runner: Save VM IP to artifact
+
+== Scan and Harden Stage ==
+Runner -> STIG: SSH connection
+activate STIG
+STIG -> STIG: Update compliance content\n(git pull)
+
+STIG -> VM: Run baseline InSpec scan\n(cinc-auditor exec)
+VM --> STIG: Baseline results
+STIG -> STIG: Save baseline.json
+
+STIG -> VM: Apply hardening\n(ansible-playbook)
+VM --> STIG: Hardening complete
+
+STIG -> VM: Run compliance scan\n(cinc-auditor exec)
+VM --> STIG: Compliance results
+STIG -> STIG: Save compliance_scan.json
+
+== Validate and Upload Stage ==
+STIG -> STIG: Apply attestation\n(saf attest apply)
+STIG -> STIG: Generate attested results
+
+STIG -> Heimdall: Upload results\n(curl with SAF format)
+activate Heimdall
+Heimdall --> STIG: Upload confirmation
+deactivate Heimdall
+
+STIG -> STIG: Display summary\n(saf view summary)
+STIG -> STIG: Validate threshold\n(saf validate threshold)
+STIG --> Runner: Threshold validation result
+deactivate STIG
+
+== Promote Stage ==
+alt Threshold passed
+    Runner -> vCenter: Power off VM
+    activate vCenter
+    vCenter --> Runner: VM powered off
+    Runner -> vCenter: Convert VM to template
+    vCenter -> Library: Clone template to content library
+    activate Library
+    Library --> vCenter: Template saved with metadata
+    deactivate Library
+    vCenter --> Runner: Template creation success
+    Runner -> Runner: Create template metadata file
+    deactivate vCenter
+else Threshold failed
+    Runner -> Runner: Skip promotion
+end
+
+== Cleanup Stage ==
+Runner -> vCenter: Delete VM
+activate vCenter
+vCenter -> VM: Destroy VM instance
+deactivate VM
+vCenter --> Runner: VM deleted
+deactivate vCenter
+
+Runner --> GitLab: Pipeline complete
+deactivate Runner
+GitLab --> Developer: Pipeline results
+deactivate GitLab
+
+note over STIG
+    SAF CLI Commands:
+    • saf attest apply
+    • saf view summary  
+    • saf validate threshold
+end note
+
+note over Library
+    Template Metadata:
+    • Compliance score
+    • Creation date
+    • VM type
+    • Pipeline ID
+end note
+
+@enduml

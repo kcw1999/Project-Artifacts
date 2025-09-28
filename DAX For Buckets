@@ -1,9 +1,0 @@
-DayBucketUpdate = 
-SWITCH(
-    TRUE(),
-    'YourTable'[daysSinceLastUpdate] <= 1, "0-1 Days",
-    'YourTable'[daysSinceLastUpdate] <= 3, "2-3 Days",
-    'YourTable'[daysSinceLastUpdate] <= 7, "4-7 Days",
-    'YourTable'[daysSinceLastUpdate] <= 14, "8-14 Days",
-    "15+ Days"
-)
