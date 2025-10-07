@@ -1,0 +1,148 @@
+@startuml continuous-compliance-sequence
+!pragma teoz true
+
+skinparam sequenceMessageAlign center
+skinparam backgroundColor #FFFFFF
+skinparam participant {
+    BackgroundColor #E3F2FD
+    BorderColor #1976D2
+}
+skinparam actor {
+    BackgroundColor #FFF3E0
+    BorderColor #F57C00
+}
+
+actor "Compliance Team" as team
+participant "GitLab\nScheduler" as gitlab
+participant "AAP\nOrchestrator" as aap
+participant "STIG\nAppliance" as stig
+participant "Target\nServers" as targets
+participant "vCenter" as vcenter
+participant "Heimdall" as heimdall
+
+== Discovery Phase ==
+gitlab -> aap: Trigger scheduled scan
+activate aap
+aap -> vcenter: Query dynamic inventory
+activate vcenter
+vcenter --> aap: Return managed VMs\n(100 servers with\ncompliance_managed=true)
+deactivate vcenter
+
+== Scanning Phase ==
+aap -> stig: Execute compliance scan job
+activate stig
+stig -> targets: Parallel InSpec scans\n(OS + Application profiles)
+activate targets
+targets --> stig: Return scan results\n(JSON per host)
+deactivate targets
+
+stig -> stig: Aggregate results
+stig -> stig: SAF CLI processing\n(attest, threshold validation)
+stig -> heimdall: Upload results
+activate heimdall
+heimdall --> stig: Stored successfully
+deactivate heimdall
+
+stig --> aap: Scan complete\n(15 non-compliant hosts)
+deactivate stig
+
+== Analysis & Reporting ==
+aap --> gitlab: Job complete with artifacts
+deactivate aap
+gitlab -> gitlab: Analyze findings\n(detect drift, categorize)
+gitlab -> heimdall: Upload fleet report
+activate heimdall
+heimdall --> gitlab: Dashboard updated
+deactivate heimdall
+
+gitlab -> team: Send notification\n(Slack + Email)\n"15 hosts need remediation"
+
+== Approval Gate ==
+team -> heimdall: Review compliance dashboard
+activate heimdall
+heimdall --> team: Show detailed findings
+deactivate heimdall
+
+team -> gitlab: Navigate to pipeline
+gitlab -> team: Display approval request\n"Approve remediation for\nCAT I controls only?"
+
+alt Approval Granted
+    team -> gitlab: ✓ Approve remediation\n(Change ticket: CHG-12345)
+    
+    == Pre-Remediation ==
+    gitlab -> aap: Trigger remediation workflow
+    activate aap
+    aap -> vcenter: Create VM snapshots
+    activate vcenter
+    vcenter --> aap: Snapshots created\n(pre-remediation-*)
+    deactivate vcenter
+    
+    == Dry Run ==
+    aap -> stig: Execute Ansible check mode
+    activate stig
+    stig -> targets: Dry-run remediation\n(--check flag)
+    activate targets
+    targets --> stig: Preview of changes\n(no actual changes)
+    deactivate targets
+    stig --> aap: Dry-run successful\n(no errors detected)
+    deactivate stig
+    
+    aap -> team: Request final confirmation\n"Dry-run OK, proceed?"
+    team -> aap: ✓ Confirm execution
+    
+    == Remediation Execution ==
+    aap -> stig: Execute real remediation
+    activate stig
+    stig -> targets: Apply Ansible hardening\n(selective controls)
+    activate targets
+    targets --> stig: Changes applied
+    deactivate targets
+    stig --> aap: Remediation complete
+    deactivate stig
+    
+    == Health Verification ==
+    aap -> targets: Application health checks\n(HTTP endpoints, services)
+    activate targets
+    targets --> aap: All applications healthy ✓
+    deactivate targets
+    
+    == Post-Validation ==
+    aap -> stig: Re-scan remediated hosts
+    activate stig
+    stig -> targets: InSpec validation scan
+    activate targets
+    targets --> stig: Post-remediation results
+    deactivate targets
+    
+    stig -> stig: Generate delta report\n(Before: 85% → After: 98%)
+    stig -> heimdall: Upload validation results
+    activate heimdall
+    heimdall --> stig: Results stored
+    deactivate heimdall
+    stig --> aap: Validation complete\n(compliance improved)
+    deactivate stig
+    
+    == Cleanup ==
+    aap -> vcenter: Delete snapshots\n(remediation successful)
+    activate vcenter
+    vcenter --> aap: Snapshots removed
+    deactivate vcenter
+    
+    aap -> gitlab: Workflow complete
+    deactivate aap
+    gitlab -> team: Send success report\n"15 hosts remediated\nCompliance: 85% → 98%"
+    
+else Approval Denied
+    team -> gitlab: ✗ Reject remediation\n"Needs further review"
+    gitlab -> team: Log rejection\nCreate tracking issue
+end
+
+== Continuous Monitoring ==
+note over gitlab, heimdall
+  Pipeline runs on schedule:
+  - Hourly: Critical systems
+  - Daily: Standard systems
+  - Weekly: Development systems
+end note
+
+@enduml

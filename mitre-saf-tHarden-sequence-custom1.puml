@@ -1,0 +1,131 @@
+@startuml continuous-compliance-activity
+!define SHOW_LEGEND
+
+skinparam backgroundColor #FFFFFF
+skinparam activity {
+    BackgroundColor #E8F5E9
+    BorderColor #2E7D32
+    DiamondBackgroundColor #FFF9C4
+    DiamondBorderColor #F57F17
+    StartColor #4CAF50
+    EndColor #D32F2F
+}
+
+start
+
+:Schedule triggers compliance scan;
+
+:AAP queries vCenter for managed VMs;
+
+:STIG Appliance executes parallel InSpec scans;
+
+:Collect and aggregate scan results;
+
+:SAF CLI processes results
+(attest, validate thresholds);
+
+:Upload results to Heimdall;
+
+if (Non-compliant hosts detected?) then (yes)
+    :Calculate compliance metrics
+    - Total hosts scanned
+    - Pass/fail counts
+    - Severity breakdown;
+    
+    :Send notification to compliance team
+    (Slack + Email);
+    
+    :Create approval request in GitLab
+    - Findings summary
+    - Recommended actions
+    - Risk assessment;
+    
+    partition "Manual Approval Gate" {
+        :Compliance team reviews findings
+        in Heimdall dashboard;
+        
+        if (Approve remediation?) then (yes)
+            :Document approval
+            - Change ticket
+            - Approved controls
+            - Scope (hosts/controls);
+            
+            :vCenter creates VM snapshots;
+            
+            :Execute Ansible dry-run (check mode);
+            
+            if (Dry-run successful?) then (yes)
+                :Apply actual remediation
+                (selective controls only);
+                
+                :Execute application health checks;
+                
+                if (Applications healthy?) then (yes)
+                    :Run post-remediation validation scan;
+                    
+                    :Generate compliance delta report;
+                    
+                    if (Compliance improved?) then (yes)
+                        :Delete VM snapshots
+                        (cleanup);
+                        
+                        :Upload validation results
+                        to Heimdall;
+                        
+                        :Send success report
+                        - Before/after metrics
+                        - Remediated controls
+                        - Zero downtime;
+                        
+                        #90EE90:Remediation successful;
+                    else (no improvement)
+                        #FFB6C1:Remediation ineffective;
+                        
+                        :Rollback from snapshots;
+                        
+                        :Alert engineering team;
+                    endif
+                else (unhealthy)
+                    #FFB6C1:Application failure detected;
+                    
+                    :Rollback from snapshots;
+                    
+                    :Restore original state;
+                    
+                    :Send failure alert;
+                endif
+            else (failed)
+                #FFB6C1:Dry-run errors detected;
+                
+                :Delete snapshots
+                (abort remediation);
+                
+                :Log errors and notify team;
+            endif
+        else (no - denied)
+            :Log rejection reason;
+            
+            :Create tracking issue for follow-up;
+            
+            #87CEEB:Remediation deferred;
+        endif
+    }
+else (no - all compliant)
+    #90EE90:No action needed;
+    
+    :Log successful scan;
+    
+    :Update Heimdall trends;
+endif
+
+:Wait for next scheduled run;
+
+stop
+
+legend right
+    |<#90EE90> Success Path |
+    |<#FFB6C1> Failure/Rollback Path |
+    |<#87CEEB> Deferred Path |
+endlegend
+
+@enduml
