@@ -1,0 +1,280 @@
+@startuml mtbp-gitops-flow
+
+title MTBP GitOps CI/CD Pipeline - Multi-Environment Deployment
+
+actor "Developer" as dev #lightblue
+participant "GitLab\n(mtbp-app-code)" as gitlab_app #lightgreen
+participant "GitLab CI\nPipeline" as ci #lightyellow
+participant "Harbor Registry\n(On-Prem)" as harbor #lightcyan
+participant "ACR/ECR\n(Cloud Registry)" as cloud_registry #lightpink
+participant "GitLab\n(mtbp-infrastructure)" as gitlab_infra #wheat
+database "ArgoCD\n(VKS Cluster)" as argocd_vks #lightblue
+database "ArgoCD\n(Cloud Cluster)" as argocd_cloud #lightgreen
+participant "VKS Dev\nCluster" as vks_dev #lightyellow
+participant "VKS Test\nCluster" as vks_test #lightyellow
+participant "AKS/EKS Staging\nCluster" as cloud_staging #lightpink
+participant "AKS/EKS Prod\nCluster" as cloud_prod #pink
+
+== Build Stage (Automated on Commit) ==
+
+dev -> gitlab_app : 1. Push code to main branch
+activate gitlab_app
+gitlab_app -> ci : 2. Trigger CI pipeline
+activate ci
+
+ci -> ci : 3. Run tests\n(unit, integration)
+ci -> ci : 4. Build monolithic\nDocker image\n(web + scheduler)
+
+note right of ci
+  docker build -t mtbp-app:sha-a1b2c3d
+  Single image contains:
+  - ASP.NET Web UI
+  - Background scheduler
+  - File upload handler
+end note
+
+ci -> harbor : 5. Push image with\nimmutable SHA tag\nmtbp-app:sha-a1b2c3d
+activate harbor
+
+ci -> ci : 6. Scan image for\nvulnerabilities\n(Trivy/Anchore)
+
+note right of ci
+  Image digest saved:
+  sha256:abc123...
+  Same image promoted
+  through all environments
+end note
+
+deactivate ci
+
+== Dev Environment (Automated) ==
+
+ci -> ci : 7. Re-tag image\nmtbp-app:dev-latest
+activate ci
+ci -> harbor : 8. Push dev tag
+ci -> gitlab_infra : 9. Clone infrastructure repo
+activate gitlab_infra
+
+ci -> gitlab_infra : 10. Update kustomization.yaml\napplications/mtbp/overlays/dev-onprem/\nnewTag: dev-latest
+
+note right of gitlab_infra
+  Git commit message:
+  "Deploy sha-a1b2c3d to dev [skip ci]"
+  
+  [skip ci] prevents infinite loop
+end note
+
+ci -> gitlab_infra : 11. Commit & push\nto main branch
+
+gitlab_infra -> argocd_vks : 12. ArgoCD detects\nGit change (webhook)
+activate argocd_vks
+
+argocd_vks -> argocd_vks : 13. Compare desired state\nvs. cluster state
+
+argocd_vks -> vks_dev : 14. Sync application\n(kubectl apply)
+activate vks_dev
+
+vks_dev -> harbor : 15. Pull image\nmtbp-app:dev-latest
+
+vks_dev -> vks_dev : 16. Deploy pods\n(rolling update)
+
+argocd_vks -> argocd_vks : 17. Health check\n(probe endpoints)
+
+argocd_vks --> ci : 18. Sync status: Healthy ✓
+deactivate argocd_vks
+deactivate vks_dev
+deactivate gitlab_infra
+deactivate ci
+
+note over vks_dev
+  Dev environment updated
+  automatically within 2-3 minutes
+end note
+
+== Test Environment (Manual Promotion) ==
+
+dev -> ci : 19. Manually trigger\n"promote:test" job
+activate ci
+
+ci -> ci : 20. Create RC tag\nmtbp-app:test-v1.2.3-rc1
+
+ci -> harbor : 21. Re-tag same image\n(same digest)
+
+ci -> gitlab_infra : 22. Update test overlay\napplications/mtbp/overlays/test-onprem/\nnewTag: test-v1.2.3-rc1
+activate gitlab_infra
+
+ci -> gitlab_infra : 23. Commit & push
+
+gitlab_infra -> argocd_vks : 24. Webhook notification
+
+argocd_vks -> vks_test : 25. Sync to test cluster
+activate vks_test
+
+vks_test -> harbor : 26. Pull image\nmtbp-app:test-v1.2.3-rc1
+
+vks_test -> vks_test : 27. Deploy & validate
+
+argocd_vks --> dev : 28. Test deployment complete ✓
+deactivate vks_test
+deactivate gitlab_infra
+deactivate ci
+
+note over vks_test
+  QA team runs:
+  - Regression tests
+  - Security scans
+  - Performance tests
+  - UAT validation
+end note
+
+== Staging Environment (Manual Promotion to Cloud) ==
+
+dev -> ci : 29. Manually trigger\n"promote:staging" job
+activate ci
+
+ci -> ci : 30. Create version tag\nmtbp-app:staging-v1.2.3
+
+ci -> harbor : 31. Copy from Harbor
+ci -> cloud_registry : 32. Push to cloud registry\n(ACR/ECR)
+activate cloud_registry
+
+note right of ci
+  Image crosses boundary:
+  On-prem Harbor → Cloud Registry
+  
+  skopeo copy \
+    docker://harbor.mil/mtbp:sha-a1b2c3d \
+    docker://youracr.azurecr.io/mtbp:staging-v1.2.3
+end note
+
+ci -> gitlab_infra : 33. Update staging overlay\napplications/mtbp/overlays/staging-cloud/\nnewTag: staging-v1.2.3
+activate gitlab_infra
+
+ci -> gitlab_infra : 34. Commit to main branch
+
+gitlab_infra -> argocd_cloud : 35. ArgoCD detects change
+activate argocd_cloud
+
+argocd_cloud -> cloud_staging : 36. Sync to staging cluster
+activate cloud_staging
+
+cloud_staging -> cloud_registry : 37. Pull image from ACR/ECR
+
+cloud_staging -> cloud_staging : 38. Deploy with\ncloud-native configs\n(managed SQL, blob storage)
+
+argocd_cloud -> argocd_cloud : 39. Validate health checks
+
+argocd_cloud --> dev : 40. Staging deployment complete ✓
+deactivate cloud_staging
+deactivate argocd_cloud
+deactivate gitlab_infra
+deactivate ci
+deactivate cloud_registry
+
+note over cloud_staging
+  Staging validates:
+  - Cloud integrations
+  - Azure SQL MI / RDS
+  - Blob/S3 storage
+  - Email service (ACS/SES)
+  - Parking Mgmt via VPN
+end note
+
+== Production Environment (Manual Approval Required) ==
+
+dev -> ci : 41. Manually trigger\n"promote:prod" job\n(requires approval)
+activate ci
+
+note right of dev
+  Production promotion requires:
+  - Change ticket (CAB approval)
+  - Security sign-off
+  - Stakeholder approval
+end note
+
+ci -> ci : 42. Validate PROD_VERSION\nenv variable set\n(e.g., v1.2.3)
+
+ci -> cloud_registry : 43. Re-tag staging image\nmtbp-app:prod-v1.2.3
+activate cloud_registry
+
+ci -> gitlab_infra : 44. Update prod overlay\napplications/mtbp/overlays/prod-cloud/\nnewTag: prod-v1.2.3
+activate gitlab_infra
+
+ci -> gitlab_infra : 45. Commit to release branch
+
+gitlab_infra -> argocd_cloud : 46. Detect change\n(NO auto-sync)
+
+note right of argocd_cloud
+  Production sync policy:
+  automated: false
+  
+  Requires manual sync
+  in ArgoCD UI
+end note
+
+dev -> argocd_cloud : 47. Manually sync\nin ArgoCD UI\n(with approval)
+activate argocd_cloud
+
+argocd_cloud -> argocd_cloud : 48. Pre-sync health check\n(current prod status)
+
+argocd_cloud -> cloud_prod : 49. Progressive sync\n(canary/blue-green)
+activate cloud_prod
+
+cloud_prod -> cloud_registry : 50. Pull prod image
+
+cloud_prod -> cloud_prod : 51. Rolling update\n(2 pods at a time)
+
+argocd_cloud -> argocd_cloud : 52. Monitor sync progress\n(pod health, metrics)
+
+cloud_prod -> cloud_prod : 53. Run smoke tests\n(health endpoints)
+
+argocd_cloud --> dev : 54. Production deployment\nsuccessful ✓
+
+deactivate cloud_prod
+deactivate argocd_cloud
+deactivate gitlab_infra
+deactivate cloud_registry
+deactivate ci
+
+note over cloud_prod
+  Production monitoring:
+  - Application Insights / CloudWatch
+  - Alert on errors
+  - Rollback capability via ArgoCD
+end note
+
+== Rollback Scenario (if needed) ==
+
+dev -> argocd_cloud : 55. If issues detected,\nrollback in ArgoCD UI
+activate argocd_cloud
+
+argocd_cloud -> gitlab_infra : 56. Revert to previous\ncommit in Git
+activate gitlab_infra
+
+argocd_cloud -> cloud_prod : 57. Sync previous version\nmtbp-app:prod-v1.2.2
+activate cloud_prod
+
+cloud_prod -> cloud_prod : 58. Restore previous state
+
+argocd_cloud --> dev : 59. Rollback complete ✓
+
+deactivate cloud_prod
+deactivate argocd_cloud
+deactivate gitlab_infra
+
+note over argocd_cloud
+  GitOps ensures:
+  - Complete audit trail
+  - Declarative rollback
+  - No manual kubectl commands
+end note
+
+legend right
+  |= Symbol |= Meaning |
+  | ✓ | Successful deployment |
+  | [skip ci] | Prevents CI loop |
+  | sha-a1b2c3d | Immutable image ID |
+  | Manual | Requires human approval |
+endlegend
+
+@enduml
